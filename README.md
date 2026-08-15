@@ -54,9 +54,10 @@ Documentação interativa disponível em `http://127.0.0.1:8000/docs`.
 | Método | Rota | Descrição |
 |---|---|---|
 | `GET` | `/` | Status da API |
-| `POST` | `/corridas` | Salva uma corrida confirmada |
-| `GET` | `/corridas` | Lista corridas (padrão: 10) |
-| `GET` | `/corridas/total` | Retorna o total de corridas salvas |
+| `POST` | `/rides` | Salva uma corrida confirmada |
+| `GET` | `/rides` | Lista corridas (padrão: 10) |
+| `GET` | `/rides/total` | Retorna o total de corridas salvas |
+| `POST` | `/predict` | Retorna o valor estimado de uma corrida |
 
 ### Exemplo de payload — POST /corridas
 
