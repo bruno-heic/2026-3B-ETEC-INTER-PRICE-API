@@ -4,10 +4,16 @@ from database import engine, SessionLocal
 from models import Base, Corrida
 from schemas import CorridaCreate
 from datetime import datetime
+import joblib
 
 app = FastAPI()
 
 Base.metadata.create_all(bind=engine)
+
+# Load model and encoders on startup
+model = joblib.load("model.pkl")
+le_plataforma = joblib.load("le_plataforma.pkl")
+le_categoria = joblib.load("le_categoria.pkl")
 
 def get_db():
     db = SessionLocal()
@@ -18,10 +24,10 @@ def get_db():
 
 @app.get("/")
 def root():
-    return { "status": "Rideless API funcionando" }
+    return { "status": "Price API running!" }
 
-@app.post("/corridas")
-def salvar_corrida(corrida: CorridaCreate, db: Session = Depends(get_db)):
+@app.post("/rides")
+def save_ride(corrida: CorridaCreate, db: Session = Depends(get_db)):
     nova_corrida = Corrida(
         origem_lat=corrida.origem_lat,
         origem_lon=corrida.origem_lon,
@@ -40,15 +46,35 @@ def salvar_corrida(corrida: CorridaCreate, db: Session = Depends(get_db)):
     db.add(nova_corrida)
     db.commit()
     db.refresh(nova_corrida)
-    return { "id": nova_corrida.id, "status": "corrida salva" }
+    return { "id": nova_corrida.id, "status": "ride saved" }
 
-# Total precisa vir antes do limit para o FastAPI não confundir com parâmetro
-@app.get("/corridas/total")
-def total_corridas(db: Session = Depends(get_db)):
+# Total must come before limit to avoid FastAPI confusing it with a parameter
+@app.get("/rides/total")
+def total_rides(db: Session = Depends(get_db)):
     total = db.query(Corrida).count()
     return { "total": total }
 
-@app.get("/corridas")
-def listar_corridas(limit: int = 10, db: Session = Depends(get_db)):
+@app.get("/rides")
+def list_rides(limit: int = 10, db: Session = Depends(get_db)):
     corridas = db.query(Corrida).limit(limit).all()
     return corridas
+
+@app.post("/predict")
+def predict_price(corrida: CorridaCreate):
+    # Transform platform and category into numbers
+    plataforma_enc = le_plataforma.transform([corrida.plataforma])[0]
+    categoria_enc = le_categoria.transform([corrida.categoria])[0]
+
+    # Build features array in the same order as training
+    features = [[
+        corrida.distancia_km,
+        corrida.duracao_min,
+        corrida.hora,
+        corrida.dia_semana,
+        plataforma_enc,
+        categoria_enc,
+        corrida.preco_estimado,
+    ]]
+
+    preco = model.predict(features)[0]
+    return { "predicted_price": round(float(preco), 2) }
