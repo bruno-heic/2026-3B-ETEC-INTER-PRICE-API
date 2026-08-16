@@ -1,30 +1,40 @@
 import pandas as pd
+import numpy as np
 from sqlalchemy import create_engine
-from sklearn.ensemble import GradientBoostingRegressor
+from sklearn.linear_model import LinearRegression
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_absolute_error
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.preprocessing import LabelEncoder
+from xgboost import XGBRegressor
 import joblib
 
-# Conecta direto no banco para ler os dados
-# Pensa nisso como um SELECT * FROM corridas
+# Conecta no banco
 engine = create_engine("sqlite:///./rideless.db")
 
 print("Lendo dados do banco...")
 df = pd.read_sql("SELECT * FROM corridas", engine)
 print(f"Total de registros: {len(df)}")
 
-# LabelEncoder transforma texto em número
-# O modelo não entende "uber" ou "99-pop" — só números
-# Então "uber" vira 2, "99" vira 0, "indrive" vira 1, por exemplo
+# Remove registros com campos nulos
+df = df.dropna(subset=[
+    "distancia_km", "duracao_min", "hora", "dia_semana",
+    "plataforma", "categoria", "preco_estimado", "preco_real",
+    "multiplicador_regiao", "multiplicador_hora", "multiplicador_demanda",
+    "demanda", "motoristas", "prob_aceitacao"
+])
+print(f"Registros após limpeza: {len(df)}")
+
+# Transforma texto em número
 le_plataforma = LabelEncoder()
 le_categoria = LabelEncoder()
+le_cenario = LabelEncoder()
 
 df["plataforma_enc"] = le_plataforma.fit_transform(df["plataforma"])
 df["categoria_enc"] = le_categoria.fit_transform(df["categoria"])
+df["cenario_enc"] = le_cenario.fit_transform(df["cenario"].fillna("desconhecido"))
 
-# Features são as variáveis que o modelo usa para prever o preço
-# Target é o que queremos prever — o preço real
+# Features completas — muito mais ricas que antes
 features = [
     "distancia_km",
     "duracao_min",
@@ -32,36 +42,67 @@ features = [
     "dia_semana",
     "plataforma_enc",
     "categoria_enc",
-    "preco_estimado",  # inclui o estimado como referência
+    "cenario_enc",
+    "demanda",
+    "motoristas",
+    "multiplicador_regiao",
+    "multiplicador_hora",
+    "multiplicador_demanda",
+    "prob_aceitacao",
+    "preco_estimado",
 ]
 target = "preco_real"
 
 X = df[features]
 y = df[target]
 
-# Divide os dados em treino (80%) e teste (20%)
-# O modelo aprende com os 80% e é avaliado nos 20% que nunca viu
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-
-print("Treinando modelo...")
-model = GradientBoostingRegressor(
-    n_estimators=500,    # mais árvores
-    learning_rate=0.05,  # passo menor = aprende melhor
-    max_depth=6,         # árvores mais profundas
-    random_state=42
+# Divide em treino (80%) e teste (20%)
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42
 )
-model.fit(X_train, y_train)
 
-# Avalia o modelo — MAE é o erro médio em reais
-# Ex: MAE de 2.50 significa que o modelo erra em média R$ 2,50
-predicoes = model.predict(X_test)
-mae = mean_absolute_error(y_test, predicoes)
-print(f"Erro médio (MAE): R$ {mae:.2f}")
+# Modelos para comparar
+modelos = {
+    "Linear Regression": LinearRegression(),
+    "Random Forest": RandomForestRegressor(n_estimators=200, random_state=42),
+    "Gradient Boosting": GradientBoostingRegressor(n_estimators=200, learning_rate=0.05, max_depth=6, random_state=42),
+    "XGBoost": XGBRegressor(n_estimators=200, learning_rate=0.05, max_depth=6, random_state=42, verbosity=0),
+}
 
-# Salva o modelo e os encoders em arquivos
-# joblib é como um "JSON" para modelos de ML
-joblib.dump(model, "model.pkl")
+print("\n--- Comparando modelos ---\n")
+
+resultados = {}
+
+for nome, modelo in modelos.items():
+    modelo.fit(X_train, y_train)
+    pred = modelo.predict(X_test)
+
+    mae  = mean_absolute_error(y_test, pred)
+    rmse = np.sqrt(mean_squared_error(y_test, pred))
+    r2   = r2_score(y_test, pred)
+
+    resultados[nome] = { "modelo": modelo, "mae": mae, "rmse": rmse, "r2": r2 }
+
+    print(f"{nome}")
+    print(f"  MAE:  R$ {mae:.2f}")
+    print(f"  RMSE: R$ {rmse:.2f}")
+    print(f"  R²:   {r2:.4f}")
+    print()
+
+# Escolhe o melhor modelo pelo menor MAE
+melhor_nome = min(resultados, key=lambda k: resultados[k]["mae"])
+melhor = resultados[melhor_nome]
+
+print(f"--- Melhor modelo: {melhor_nome} ---")
+print(f"MAE: R$ {melhor['mae']:.2f}")
+print(f"RMSE: R$ {melhor['rmse']:.2f}")
+print(f"R²: {melhor['r2']:.4f}")
+
+# Salva o melhor modelo e os encoders
+joblib.dump(melhor["modelo"], "model.pkl")
 joblib.dump(le_plataforma, "le_plataforma.pkl")
 joblib.dump(le_categoria, "le_categoria.pkl")
+joblib.dump(le_cenario, "le_cenario.pkl")
+joblib.dump(features, "features.pkl")
 
-print("Modelo salvo em model.pkl")
+print(f"\nModelo '{melhor_nome}' salvo em model.pkl")

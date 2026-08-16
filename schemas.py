@@ -1,8 +1,5 @@
 from pydantic import BaseModel
-
-# Pydantic valida os dados que chegam na API
-# Pensa nele como o TypeScript do Python —
-# garante que os dados têm o tipo certo antes de salvar no banco
+from typing import Optional
 
 class CorridaCreate(BaseModel):
     # Coordenadas
@@ -15,7 +12,7 @@ class CorridaCreate(BaseModel):
     distancia_km: float
     duracao_min: float
 
-    # Horário — o app vai calcular e mandar pronto
+    # Horário
     hora: int
     dia_semana: int
 
@@ -23,6 +20,19 @@ class CorridaCreate(BaseModel):
     plataforma: str
     categoria: str
 
+    # Cenário — Optional para não quebrar dados antigos
+    cenario: Optional[str] = None
+    demanda: Optional[int] = None
+    motoristas: Optional[int] = None
+
+    # Multiplicadores
+    multiplicador_regiao: Optional[float] = None
+    multiplicador_hora: Optional[float] = None
+    multiplicador_demanda: Optional[float] = None
+
     # Preços
     preco_estimado: float
     preco_real: float
+
+    # Probabilidade
+    prob_aceitacao: Optional[float] = None

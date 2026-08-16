@@ -1,34 +1,39 @@
 import random
 import requests
 from datetime import datetime
+from config import (
+    GEO, REGIOES, PLATFORMS, HORA_MULTIPLICADOR,
+    DIA_MULTIPLICADOR, CENARIOS, VARIACAO_PRECO,
+    PRECO_MINIMO, PRECO_MAXIMO
+)
 
-# URL da sua API local
-API_URL = "http://127.0.0.1:8000/corridas"
+# URL da API local
+API_URL = "http://127.0.0.1:8000/rides"
 
-# Tarifas por categoria — igual ao platforms.ts do app
-PLATFORMS = [
-    { "plataforma": "uber", "categoria": "uber-moto", "base": 3.5, "per_km": 1.1, "per_min": 0.15 },
-    { "plataforma": "uber", "categoria": "uber-x", "base": 4.5, "per_km": 1.9, "per_min": 0.25 },
-    { "plataforma": "uber", "categoria": "uber-confort", "base": 7.5, "per_km": 2.8, "per_min": 0.45 },
-    { "plataforma": "uber", "categoria": "uber-black", "base": 12.0, "per_km": 4.2, "per_min": 0.7 },
-    { "plataforma": "99", "categoria": "99-moto", "base": 3.2, "per_km": 1.0, "per_min": 0.12 },
-    { "plataforma": "99", "categoria": "99-pop", "base": 4.0, "per_km": 1.8, "per_min": 0.22 },
-    { "plataforma": "99", "categoria": "99-plus", "base": 6.5, "per_km": 2.4, "per_min": 0.38 },
-]
+# Seed para reprodutibilidade — sempre gera os mesmos dados
+random.seed(42)
 
-# Limites geográficos de São Paulo
-SP_LAT_MIN, SP_LAT_MAX = -23.7, -23.4
-SP_LON_MIN, SP_LON_MAX = -46.8, -46.4
-
-def gerar_coordenada():
-    # Gera um ponto aleatório dentro de São Paulo
-    lat = random.uniform(SP_LAT_MIN, SP_LAT_MAX)
-    lon = random.uniform(SP_LON_MIN, SP_LON_MAX)
+def gerar_coordenada_regiao(regiao: dict) -> tuple:
+    # Gera coordenada dentro dos limites de uma região específica
+    lat = random.uniform(regiao["lat"][0], regiao["lat"][1])
+    lon = random.uniform(regiao["lon"][0], regiao["lon"][1])
     return lat, lon
 
-def buscar_rota(origem_lat, origem_lon, destino_lat, destino_lon):
-    # Chama o OSRM para pegar distância e tempo reais
-    url = f"https://router.project-osrm.org/route/v1/driving/{origem_lon},{origem_lat};{destino_lon},{destino_lat}?overview=false"
+def gerar_coordenada_geral() -> tuple:
+    lat = random.uniform(GEO["lat_min"], GEO["lat_max"])
+    lon = random.uniform(GEO["lon_min"], GEO["lon_max"])
+    return lat, lon
+
+def escolher_regiao() -> dict:
+    # Escolhe uma região aleatória — aeroporto e periferia aparecem menos
+    pesos = [0.30, 0.10, 0.20, 0.40]  # centro, aeroporto, periferia, geral
+    return random.choices(list(REGIOES.values()), weights=pesos)[0]
+
+def buscar_rota(origem_lat, origem_lon, destino_lat, destino_lon) -> dict | None:
+    url = (
+        f"https://router.project-osrm.org/route/v1/driving/"
+        f"{origem_lon},{origem_lat};{destino_lon},{destino_lat}?overview=false"
+    )
     try:
         res = requests.get(url, timeout=5)
         data = res.json()
@@ -42,23 +47,69 @@ def buscar_rota(origem_lat, origem_lon, destino_lat, destino_lon):
     except:
         return None
 
-def calcular_preco(platform, distancia_km, duracao_min, hora):
-    # Surge em horário de pico
-    peak = (7 <= hora <= 9) or (17 <= hora <= 20)
-    surge = 1.4 if peak else 1.0
+def get_multiplicador_hora(hora: int) -> float:
+    for intervalo, mult in HORA_MULTIPLICADOR.items():
+        if hora in intervalo:
+            return mult
+    return 1.0
 
-    preco = platform["base"] + platform["per_km"] * distancia_km + platform["per_min"] * duracao_min
-    return round(preco * surge, 2)
+def calcular_multiplicador_demanda(demanda: int, motoristas: int) -> float:
+    # Relação demanda/oferta — limitada para evitar valores absurdos
+    ratio = demanda / max(motoristas, 1)
+    if ratio < 0.5:   return 0.85
+    if ratio < 1.0:   return 1.00
+    if ratio < 1.5:   return 1.15
+    if ratio < 2.0:   return 1.30
+    if ratio < 3.0:   return 1.50
+    return 1.70  # máximo
 
-def simular(quantidade=100):
+def calcular_preco_estimado(platform, distancia_km, duracao_min, hora, dia_semana, regiao, cenario) -> float:
+    # Preço base
+    preco = (
+        platform["base"] +
+        platform["per_km"] * distancia_km +
+        platform["per_min"] * duracao_min
+    )
+
+    # Aplica multiplicadores
+    preco *= get_multiplicador_hora(hora)
+    preco *= DIA_MULTIPLICADOR[dia_semana]
+    preco *= regiao["multiplicador"]
+    preco *= calcular_multiplicador_demanda(cenario["demanda"], cenario["motoristas"])
+
+    # Garante limites
+    return round(max(PRECO_MINIMO, min(preco, PRECO_MAXIMO)), 2)
+
+def calcular_probabilidade_aceitacao(preco, distancia_km, demanda, motoristas) -> float:
+    # Quanto maior o preço relativo à distância, menor a aceitação
+    preco_por_km = preco / max(distancia_km, 0.1)
+    ratio_demanda = demanda / max(motoristas, 1)
+
+    # Base de aceitação
+    aceitacao = 0.85
+
+    # Penaliza preço alto
+    if preco_por_km > 5: aceitacao -= 0.20
+    elif preco_por_km > 3: aceitacao -= 0.10
+
+    # Alta demanda aumenta aceitação
+    if ratio_demanda > 2: aceitacao += 0.10
+    elif ratio_demanda < 0.5: aceitacao -= 0.15
+
+    return round(max(0.1, min(aceitacao, 0.99)), 2)
+
+def simular(quantidade: int = 100):
     salvos = 0
 
     for i in range(quantidade):
-        # Coordenadas aleatórias
-        origem_lat, origem_lon = gerar_coordenada()
-        destino_lat, destino_lon = gerar_coordenada()
+        # Escolhe região e gera coordenadas
+        regiao_origem = escolher_regiao()
+        regiao_destino = escolher_regiao()
 
-        # Rota real via OSRM
+        origem_lat, origem_lon = gerar_coordenada_regiao(regiao_origem)
+        destino_lat, destino_lon = gerar_coordenada_regiao(regiao_destino)
+
+        # Busca rota real via OSRM
         rota = buscar_rota(origem_lat, origem_lon, destino_lat, destino_lon)
         if not rota:
             print(f"[{i+1}] Rota não encontrada, pulando...")
@@ -68,16 +119,38 @@ def simular(quantidade=100):
         hora = random.randint(0, 23)
         dia_semana = random.randint(0, 6)
 
+        # Cenário de demanda — respeita os pesos definidos no config
+        cenario = random.choices(
+            CENARIOS,
+            weights=[c["peso"] for c in CENARIOS]
+        )[0]
+
         # Plataforma aleatória
         platform = random.choice(PLATFORMS)
 
-        # Preço estimado
-        preco_estimado = calcular_preco(platform, rota["distancia_km"], rota["duracao_min"], hora)
+        # Calcula preço estimado com todos os multiplicadores
+        preco_estimado = calcular_preco_estimado(
+            platform,
+            rota["distancia_km"],
+            rota["duracao_min"],
+            hora,
+            dia_semana,
+            regiao_origem,
+            cenario
+        )
 
-        # Preço real com variação de -15% a +25%
-        preco_real = round(preco_estimado * random.uniform(0.95, 1.10), 2)
+        # Preço real com variação realista
+        variacao = random.uniform(VARIACAO_PRECO["min"], VARIACAO_PRECO["max"])
+        preco_real = round(max(PRECO_MINIMO, preco_estimado * variacao), 2)
 
-        # Monta o payload
+        # Probabilidade de aceitação
+        prob_aceitacao = calcular_probabilidade_aceitacao(
+            preco_estimado,
+            rota["distancia_km"],
+            cenario["demanda"],
+            cenario["motoristas"]
+        )
+
         payload = {
             "origem_lat": origem_lat,
             "origem_lon": origem_lon,
@@ -89,22 +162,27 @@ def simular(quantidade=100):
             "dia_semana": dia_semana,
             "plataforma": platform["plataforma"],
             "categoria": platform["categoria"],
+            "cenario": cenario["nome"],
+            "demanda": cenario["demanda"],
+            "motoristas": cenario["motoristas"],
+            "multiplicador_regiao": regiao_origem["multiplicador"],
+            "multiplicador_hora": get_multiplicador_hora(hora),
+            "multiplicador_demanda": calcular_multiplicador_demanda(cenario["demanda"], cenario["motoristas"]),
             "preco_estimado": preco_estimado,
             "preco_real": preco_real,
+            "prob_aceitacao": prob_aceitacao,
         }
 
-        # Salva na API
         try:
             res = requests.post(API_URL, json=payload, timeout=5)
             if res.status_code == 200:
                 salvos += 1
-                print(f"[{i+1}] Salvo — {platform['categoria']} · R$ {preco_real}")
+                print(f"[{i+1}] {platform['categoria']} · R$ {preco_real} · aceitação: {prob_aceitacao} · cenário: {cenario['nome']}")
             else:
-                print(f"[{i+1}] Erro ao salvar: {res.status_code}")
+                print(f"[{i+1}] Erro: {res.status_code}")
         except:
             print(f"[{i+1}] Erro de conexão")
 
     print(f"\nConcluído — {salvos}/{quantidade} corridas salvas")
 
-# Roda o script — muda o número para quantas corridas quiser
-simular(1000)
+simular(10000)

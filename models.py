@@ -9,27 +9,39 @@ class Corrida(Base):
 
     id = Column(Integer, primary_key=True, index=True)
 
-    # Coordenadas de origem e destino
+    # Coordenadas
     origem_lat = Column(Float)
     origem_lon = Column(Float)
     destino_lat = Column(Float)
     destino_lon = Column(Float)
 
-    # Dados da rota calculada pelo OSRM
+    # Rota
     distancia_km = Column(Float)
     duracao_min = Column(Float)
 
-    # Horário da corrida
-    hora = Column(Integer)        # 0 a 23
-    dia_semana = Column(Integer)  # 0 = segunda, 6 = domingo
+    # Horário
+    hora = Column(Integer)
+    dia_semana = Column(Integer)
 
-    # Dados da plataforma
-    plataforma = Column(String)   # "uber", "99", "indrive"
-    categoria = Column(String)    # "uber-x", "99-pop", etc
+    # Plataforma
+    plataforma = Column(String)
+    categoria = Column(String)
+
+    # Cenário de demanda
+    cenario = Column(String)
+    demanda = Column(Integer)
+    motoristas = Column(Integer)
+
+    # Região
+    multiplicador_regiao = Column(Float)
+    multiplicador_hora = Column(Float)
+    multiplicador_demanda = Column(Float)
 
     # Preços
-    preco_estimado = Column(Float)  # o que o app calculou
-    preco_real = Column(Float)      # o que o usuário pagou de fato
+    preco_estimado = Column(Float)
+    preco_real = Column(Float)
 
-    # Preenchida automaticamente no momento do registro
+    # Probabilidade
+    prob_aceitacao = Column(Float)
+
     criado_em = Column(DateTime, default=datetime.utcnow)
