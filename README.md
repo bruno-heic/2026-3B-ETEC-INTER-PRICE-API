@@ -2,17 +2,20 @@
 
 Backend da aplicação Rideless — responsável por coletar corridas confirmadas, armazenar dados, treinar e servir o modelo de estimativa de preços.
 
+---
 
 ## Visão Geral
 
 A API recebe corridas confirmadas pelo app, persiste os dados localmente e expõe endpoints para consulta e predição. Os dados coletados alimentam o modelo de machine learning que refina progressivamente as estimativas de preço geradas pelo algoritmo estático do app.
 
+---
 
 ## Requisitos
 
 - Python 3.12+
 - pip 24+
 
+---
 
 ## Instalação
 
@@ -31,9 +34,11 @@ Instale as dependências:
 pip install fastapi uvicorn sqlalchemy python-dotenv scikit-learn pandas joblib requests xgboost lightgbm scipy numpy
 ```
 
-## Uso
+---
 
-Inicie o servidor:
+## Como Rodar
+
+### Desenvolvimento local
 
 ```bash
 uvicorn main:app --reload
@@ -41,8 +46,37 @@ uvicorn main:app --reload
 
 A API estará disponível em `http://127.0.0.1:8000`.
 
-Documentação interativa disponível em `http://127.0.0.1:8000/docs`.
+### Acessível externamente (necessário para o app mobile)
 
+```bash
+uvicorn main:app --reload --host 0.0.0.0
+```
+
+O `--host 0.0.0.0` faz a API aceitar conexões de qualquer origem — necessário para que o app mobile consiga acessá-la.
+
+### GitHub Codespaces
+
+Se estiver rodando no GitHub Codespaces, após iniciar a API:
+
+1. Acesse a aba **Ports** no VS Code
+2. Clique com botão direito na porta **8000**
+3. Selecione **Port Visibility → Public**
+
+Isso torna a URL do Codespace acessível publicamente. Copie a URL gerada e configure no app em `services/predict.ts`:
+
+```typescript
+const API_URL = "https://seu-codespace-8000.app.github.dev"
+```
+
+### Documentação interativa
+
+Disponível em `/docs` após iniciar o servidor:
+
+```
+http://127.0.0.1:8000/docs
+```
+
+---
 
 ## Endpoints
 
@@ -55,6 +89,7 @@ Documentação interativa disponível em `http://127.0.0.1:8000/docs`.
 | `DELETE` | `/rides/reset` | Apaga todas as corridas do banco |
 | `POST` | `/predict` | Retorna estimativa de preço via modelo de ML |
 
+---
 
 ## Exemplos de Payload
 
@@ -97,11 +132,12 @@ Documentação interativa disponível em `http://127.0.0.1:8000/docs`.
 }
 ```
 
+---
 
 ## Estrutura do Projeto
 
 ```
-rideless/
+rideless-api/
 ├── main.py         # Endpoints da API
 ├── models.py       # Modelo da tabela do banco de dados
 ├── schemas.py      # Validação dos dados de entrada
@@ -110,6 +146,8 @@ rideless/
 ├── simulate.py     # Geração de corridas sintéticas
 └── train.py        # Treinamento e comparação de modelos de ML
 ```
+
+---
 
 ## Simulação de Dados
 
@@ -133,6 +171,7 @@ Para alterar a quantidade de simulações, edite a última linha do arquivo:
 simular(10000)  # substitua pelo número desejado
 ```
 
+---
 
 ## Treinamento do Modelo
 
@@ -171,6 +210,7 @@ O melhor modelo é selecionado automaticamente pelo menor MAE e salvo em `model.
 
 > Esses arquivos não são versionados no repositório.
 
+---
 
 ## Como Funciona a Estimativa
 
@@ -187,6 +227,9 @@ demanda, região e histórico
 Retorna predicted_price + faixa de preço + confiança
 ```
 
+O app usa o `predicted_price` como preço final exibido ao usuário. Se a API estiver indisponível, o app usa o preço estático como fallback automaticamente.
+
+---
 
 ## Estado Atual — MVP
 
@@ -201,6 +244,7 @@ Resultados atuais com 10.000 simulações:
 | Gradient Boosting | R$ 5.21 | R$ 7.65 | 0.9902 |
 | Random Forest | R$ 5.22 | R$ 7.67 | 0.9901 |
 
+---
 
 ## Licença
 
