@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import engine, SessionLocal
 from models import Base, Corrida
@@ -10,10 +10,22 @@ app = FastAPI()
 
 Base.metadata.create_all(bind=engine)
 
-model = joblib.load("model.pkl")
-le_plataforma = joblib.load("le_plataforma.pkl")
-le_categoria = joblib.load("le_categoria.pkl")
-le_cenario = joblib.load("le_cenario.pkl")
+model = None
+le_plataforma = None
+le_categoria = None
+le_cenario = None
+
+def load_model():
+    global model, le_plataforma, le_categoria, le_cenario
+    try:
+        model = joblib.load("model.pkl")
+        le_plataforma = joblib.load("le_plataforma.pkl")
+        le_categoria = joblib.load("le_categoria.pkl")
+        le_cenario = joblib.load("le_cenario.pkl")
+    except FileNotFoundError:
+        model = None  # modelo ainda não treinado
+
+load_model()
 
 def get_db():
     db = SessionLocal()
@@ -68,10 +80,22 @@ def list_rides(limit: int = 10, db: Session = Depends(get_db)):
 
 @app.post("/predict")
 def predict_price(corrida: CorridaCreate):
+      if model is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Modelo ainda não treinado. Rode 'python train.py' e reinicie a API.",
+        )
+
     # Transforma texto em número
-    plataforma_enc = le_plataforma.transform([corrida.plataforma])[0]
-    categoria_enc = le_categoria.transform([corrida.categoria])[0]
-    cenario_enc = le_cenario.transform([corrida.cenario or "desconhecido"])[0]
+    try:
+        plataforma_enc = le_plataforma.transform([corrida.plataforma])[0]
+        categoria_enc = le_categoria.transform([corrida.categoria])[0]
+        cenario_enc = le_cenario.transform([corrida.cenario or "desconhecido"])[0]
+    except ValueError:
+        raise HTTPException(
+            status_code=422,
+            detail="Plataforma, categoria ou cenário não reconhecido pelo modelo.",
+        )
 
     # Calcula multiplicador de demanda
     demanda = corrida.demanda or 80
