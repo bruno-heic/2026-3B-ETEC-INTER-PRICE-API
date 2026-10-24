@@ -185,4 +185,8 @@ def simular(quantidade: int = 100):
 
     print(f"\nConcluído — {salvos}/{quantidade} corridas salvas")
 
-simular(10000)
+if __name__ == "__main__":
+    import sys
+
+    quantidade = int(sys.argv[1]) if len(sys.argv) > 1 else 10000
+    simular(quantidade)
